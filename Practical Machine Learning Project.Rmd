@@ -1,0 +1,317 @@
+---
+title: "Machine Learning Profect"
+author: "Corinne Helman"
+date: "April 11, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+set.seed(10)
+setwd("C:/Users/helmac1/Documents/Personal/Coursera")
+```
+
+#Executive Summary
+```
+Using data downloaded from accelometers of personal activity devices, the goal of this project is to predict how 6 participants are doing unilateral dumbbell biceps curls. The 5 different ways to do curls are 1) exactly according to the specification (Class A), 2) throwing the elbows to the front (Class B), 3) lifting the dumbbell only halfway (Class C), 4) lowering the dumbbell only halfway (Class D) and 5) throwing the hips to the front (Class E). 
+The Weight Lifting Exercise data used can be found here.  http://groupware.les.inf.puc-rio.br/har 
+```
+
+# Uploading the data
+```
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(RColorBrewer)
+library(rattle)
+library(randomForest)
+library(gmb)
+
+if(!file.exists("pml-training.csv")){download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", destfile = "pml-training.csv")}
+
+if(!file.exists("pml-testing.csv")){download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", destfile = "pml-testing.csv")}
+
+```
+# Cleaning the data
+
+```
+trainingDataSet<- read.csv("pml-training.csv", sep=",", header=TRUE, na.strings = c("NA","",'#DIV/0!'))
+testingDataSet<- read.csv("pml-testing.csv", sep=",", header=TRUE, na.strings = c("NA","",'#DIV/0!'))
+
+```
+# For validation purposes, partitioning the training data set into a training and a testing data set
+```
+inTrain  <- createDataPartition(trainingDataSet$classe, p=0.7, list=FALSE)
+TrainingSet <- trainingDataSet[inTrain, ]
+TestingSet  <- trainingDataSet[-inTrain, ]
+dim(TrainingSet)
+##[1] 13737   160
+dim(TestingSet)
+##[1] 5885  160
+# Both datasets have 160 variables but Training has 13737 records while the testing set only has 5885.
+```
+
+# Removing variables that are near zero variance
+```
+nzv <- nearZeroVar(TrainingSet, saveMetrics=TRUE)
+TrainingTrainSet <- TrainingSet[,nzv$nzv==FALSE]
+
+nzv<- nearZeroVar(TestingSet,saveMetrics=TRUE)
+TestingSet <- TestingSet[,nzv$nzv==FALSE]
+
+dim(TrainingSet)
+##[1] 13737   132 
+dim(TestingSet)
+##[1] 5885  132
+## We now only have 132 variables in both our testing and training datasets
+```
+# Removing variables with missing values
+```
+indColToRemove <- which(colSums(is.na(TrainingSet) | TrainingSet=="")>0.9*dim(TrainingSet)[1]) 
+TrainingClean <- TrainingSet[,-indColToRemove]
+TrainingClean <- TrainingClean[,-c(1:7)]
+dim(TrainingClean)
+##[1] 13737    52
+
+indColToRemove <- which(colSums(is.na(TestingSet) | TestingSet=="")>0.9*dim(TestingSet)[1]) 
+TestingClean <- TestingSet[,-indColToRemove]
+TestingClean <- TestingClean[,-c(1:7)]
+dim(TestingClean)
+##[1] 5885   52
+## We have now only 52 rows in both data sets
+
+```
+# Identifying highly correlated variables
+```
+cor_mat <- cor(TrainingClean[, -52])
+highlyCorrelated = findCorrelation(cor_mat, cutoff=0.75)
+names(TrainingClean)[highlyCorrelated]
+##[1] "accel_belt_z"      "accel_dumbbell_z"  "accel_arm_y"       "accel_belt_y"      "accel_belt_x"      "yaw_belt"          "pitch_belt"       
+##[8] "magnet_dumbbell_x" "accel_dumbbell_y"  "magnet_dumbbell_y" "accel_dumbbell_x"  "accel_arm_x"       "accel_arm_z"       "magnet_arm_y"     
+##[15] "magnet_belt_y"     "accel_forearm_y"   "gyros_arm_x" 
+```
+
+# Modeling Predictions
+```
+# We will use 3 methods to model the data
+# 1) Random Forest
+# 2) Decision Trees
+# 3) Gradient Boosting
+```
+
+# 1) Random Forest
+```
+set.seed(55)
+modFit1 <- randomForest(classe ~ ., data=TrainingClean)
+prediction1 <- predict(modFit1, TestingClean, type = "class")
+rfmodtrain <- confusionMatrix(prediction1, TestingClean$classe)
+rfmodtrain
+```
+```
+## We now test the model on the testing data set to assess accuracy
+
+predictTest <- predict(rfmodtrain, newdata=TestingClean)
+rfmodtest <- confusionMatrix(predictTest, TestingClean$classe)
+rfmodtest
+
+
+##Confusion Matrix and Statistics
+##
+##          Reference
+##Prediction    A    B    C    D    E
+##         A 1674   12    0    0    0
+##         B    0 1127    3    0    0
+##         C    0    0 1022    5    0
+##         D    0    0    1  959    0
+##         E    0    0    0    0 1082
+##
+##Overall Statistics
+##                                          
+##               Accuracy : 0.9964          
+##                 95% CI : (0.9946, 0.9978)
+##    No Information Rate : 0.2845          
+##    P-Value [Acc > NIR] : < 2.2e-16       
+##                                          
+##                  Kappa : 0.9955          
+## Mcnemar's Test P-Value : NA              
+##
+##Statistics by Class:
+##
+##                   Class: A Class: B Class: C Class: D Class: E
+##Sensitivity            1.0000   0.9895   0.9961   0.9948   1.0000
+##Specificity            0.9972   0.9994   0.9990   0.9998   1.0000
+##Pos Pred Value         0.9929   0.9973   0.9951   0.9990   1.0000
+##Neg Pred Value         1.0000   0.9975   0.9992   0.9990   1.0000
+##Prevalence             0.2845   0.1935   0.1743   0.1638   0.1839
+##Detection Rate         0.2845   0.1915   0.1737   0.1630   0.1839
+##Detection Prevalence   0.2865   0.1920   0.1745   0.1631   0.1839
+##Balanced Accuracy      0.9986   0.9944   0.9975   0.9973   1.0000
+```
+```
+
+plot(rfmodtrain$table, col = rfmodtrain$byClass, main = paste("Decision Tree Confusion Matrix: Accuracy =", round(rfmodtrain$overall['Accuracy'], 4)))
+```
+
+![Alt Text](/Users/helmac1/Documents/Personal/Coursera/Decisiontreeplot.jpeg)
+```
+
+## An accuracy of 0.99 makes for a good model
+
+```
+#2) Decision Tree
+```
+Trees <- rpart(classe ~ ., data=TrainingClean, method="class")
+fancyRpartPlot(Trees)
+```
+![Alt Text](/Users/helmac1/Documents/Personal/Coursera/Treegraph.jpg)
+
+```
+## To test the accuracy of the model, we now use it on the test data
+
+predictTrees <- predict(Trees, TestingClean, type = "class")
+Tree <- confusionMatrix(predictTrees, TestingClean$classe)
+Tree
+```
+```
+##Confusion Matrix and Statistics
+##
+##          Reference
+##Prediction    A    B    C    D    E
+##         A 1405  155   29   44   32
+##         B   37  565   52   76   36
+##         C  110  173  798  221  176
+##         D  108  169  124  522   51
+##         E   14   77   23  101  787
+##
+##Overall Statistics
+##                                          
+##               Accuracy : 0.6928          
+##                 95% CI : (0.6808, 0.7046)
+##    No Information Rate : 0.2845          
+##    P-Value [Acc > NIR] : < 2.2e-16       
+##                                          
+##                  Kappa : 0.6122          
+## Mcnemar's Test P-Value : < 2.2e-16       
+##
+##Statistics by Class:
+##
+##                     Class: A Class: B Class: C Class: D Class: E
+##Sensitivity            0.8393  0.49605   0.7778   0.5415   0.7274
+##Specificity            0.9383  0.95765   0.8601   0.9081   0.9552
+##Pos Pred Value         0.8438  0.73760   0.5399   0.5359   0.7854
+##Neg Pred Value         0.9363  0.88787   0.9483   0.9100   0.9396
+##Prevalence             0.2845  0.19354   0.1743   0.1638   0.1839
+##Detection Rate         0.2387  0.09601   0.1356   0.0887   0.1337
+##Detection Prevalence   0.2829  0.13016   0.2511   0.1655   0.1703
+##Balanced Accuracy      0.8888  0.72685   0.8189   0.7248   0.8413
+
+plot(Tree$table, col = Tree$byClass, main = paste("Decision Tree Confusion Matrix: Accuracy =", round(Tree$overall['Accuracy'], 4)))
+```
+![Alt Text](/Users/helmac1/Documents/Personal/Coursera/Treeconfusionmatrix.jpg)
+```
+## We can see that the accuracy rate is 0.6928 which leaves a large margin for error
+```
+
+## 3) Gradient Boosting Model
+```
+set.seed(50)
+GBM <- trainControl(method = "repeatedcv", number = 5, repeats = 1)
+modGBM  <- train(classe ~ ., data=TrainingClean, method = "gbm", trControl = GBM, verbose = FALSE)
+modGBM$finalModel
+
+Print(modGBM)
+
+## A gradient boosted model with multinomial loss function.
+## 150 iterations were performed.
+## There were 51 predictors of which 42 had non-zero influence.
+> 
+> print(modGBM)
+##Stochastic Gradient Boosting 
+##
+##13737 samples
+##   51 predictor
+##    5 classes: 'A', 'B', 'C', 'D', 'E' 
+##
+##  No pre-processing
+##  Resampling: Cross-Validated (5 fold, repeated 1 times) 
+##  Summary of sample sizes: 10991, 10990, 10990, 10990, 10987 
+##  Resampling results across tuning parameters:
+##
+##  interaction.depth  n.trees  Accuracy   Kappa    
+##  1                   50      0.7376455  0.6674609
+##  1                  100      0.8105881  0.7602950
+##  1                  150      0.8440735  0.8026621
+##  2                   50      0.8520074  0.8124836
+##  2                  100      0.9042007  0.8787625
+##  2                  150      0.9279321  0.9088146
+##  3                   50      0.8918249  0.8630730
+##  3                  100      0.9382698  0.9218731
+##  3                  150      0.9575610  0.9462956
+##
+## Tuning parameter 'shrinkage' was held constant at a value of 0.1
+## Tuning parameter 'n.minobsinnode' was held constant at a value of 10
+## Accuracy was used to select the optimal model using the largest value.
+## The final values used for the model were n.trees = 150, interaction.depth = 3, shrinkage = 0.1 and n.minobsinnode = 10.
+```
+```
+##Validate the GBM model by modeling the test set
+
+predictGBM <- predict(modGBM, newdata=TestingClean)
+controlGBM <- confusionMatrix(predictGBM, TestingClean$classe)
+controlGBM
+
+```
+
+```
+##Confusion Matrix and Statistics
+##
+##          Reference
+## Prediction    A    B    C    D    E
+##         A 1643   38    0    3    1
+##         B   24 1056   23    2    9
+##         C    3   38  984   30    8
+##         D    3    4   16  918   13
+##         E    1    3    3   11 1051
+##
+##Overall Statistics
+##                                          
+##               Accuracy : 0.9604          
+##                 95% CI : (0.9551, 0.9652)
+##    No Information Rate : 0.2845          
+##    P-Value [Acc > NIR] : < 2e-16         
+##                                          
+##                  Kappa : 0.9499          
+##  Mcnemar's Test P-Value : 0.02727         
+##
+##Statistics by Class:
+##
+##                     Class: A Class: B Class: C Class: D Class: E
+## Sensitivity            0.9815   0.9271   0.9591   0.9523   0.9713
+## Specificity            0.9900   0.9878   0.9837   0.9927   0.9963
+## Pos Pred Value         0.9751   0.9479   0.9257   0.9623   0.9832
+## Neg Pred Value         0.9926   0.9826   0.9913   0.9907   0.9936
+## Prevalence             0.2845   0.1935   0.1743   0.1638   0.1839
+## Detection Rate         0.2792   0.1794   0.1672   0.1560   0.1786
+## Detection Prevalence   0.2863   0.1893   0.1806   0.1621   0.1816
+## Balanced Accuracy      0.9858   0.9575   0.9714   0.9725   0.9838
+
+## The Gradiant Boosting Model retured an accuracy rate of 0.9604 leaving an out of sample error of 0.0396
+```
+
+# Conclusion
+
+``` 
+##The best model to predict the accuracy of our data was the Random Forest model, followed closely by the Gradient Boosting Model and distantly by the ##Classification Tree Model.
+
+##we will now use the Random Forest model to predict the values of classe for our test data set.
+
+FinalTestPred <- predict(modFit1,newdata=TestingClean)
+FinalTestPred
+
+```
+```
+##  [1] B A B A A E D B A A B C B A E E A B B B
+## Levels: A B C D E
+```
+
+
